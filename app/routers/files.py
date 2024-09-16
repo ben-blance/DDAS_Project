@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from app.services.hash_service import hash_and_store_file, get_all_files, get_duplicate_files
-from app.db.supabase_service import upload_hashes_to_supabase
 
 router = APIRouter()
 
@@ -16,8 +15,6 @@ async def upload_file(file: UploadFile = File(...)):
 def get_found_files():
     try:
         files = get_all_files()
-        # Upload all hashes to Supabase
-        upload_hashes_to_supabase(files)
         return files
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving files: {str(e)}")

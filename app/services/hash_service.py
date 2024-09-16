@@ -1,7 +1,7 @@
 import hashlib
 from fastapi import UploadFile
 from typing import Dict, List, Union, Set
-from app.db.supabase_service import upload_hashes_to_supabase
+from app.db.supabase_service import upload_hashes_to_supabase, check_hash_exists
 
 # In-memory storage for file hashes
 hashes_db: Dict[str, List[str]] = {}
@@ -23,7 +23,7 @@ async def hash_and_store_file(file: UploadFile):
         if file.filename not in duplicates_db[hash_hex]:
             duplicates_db[hash_hex].append(file.filename)
         
-        return {
+        result = {
             "filename": file.filename,
             "sha256_hash": hash_hex,
             "message": "Duplicate detected",
@@ -31,17 +31,22 @@ async def hash_and_store_file(file: UploadFile):
         }
     else:
         hashes_db[hash_hex] = [file.filename]
-        return {
+        result = {
             "filename": file.filename,
             "sha256_hash": hash_hex,
             "message": "Hash stored"
         }
+    
+    # Automatically process and update data
+    process_and_update_data()
+    
+    return result
 
-def get_all_files() -> Union[Dict[str, str], List[Dict[str, Union[str, List[str]]]]]:
+def process_and_update_data():
     if not hashes_db:
         return {"message": "No hashes found in memory"}
-    unique_files = {hash_hex: list(set(filenames)) for hash_hex, filenames in hashes_db.items()}
-    files = [{"sha256_hash": hash_hex, "filenames": filenames} for hash_hex, filenames in unique_files.items()]
+    
+    files = [{"sha256_hash": hash_hex, "filenames": filenames} for hash_hex, filenames in hashes_db.items()]
     
     # Upload hashes to Supabase and get the sets of existing and new hashes
     existing_hashes, new_hashes = upload_hashes_to_supabase(files)
@@ -58,8 +63,11 @@ def get_all_files() -> Union[Dict[str, str], List[Dict[str, Union[str, List[str]
     
     # Remove new hashes from memory
     remove_uploaded_hashes(new_hashes)
-    
-    return files
+
+def get_all_files() -> Union[Dict[str, str], List[Dict[str, Union[str, List[str]]]]]:
+    if not hashes_db:
+        return {"message": "No hashes found in memory"}
+    return [{"sha256_hash": hash_hex, "filenames": filenames} for hash_hex, filenames in hashes_db.items()]
 
 def get_duplicate_files() -> Union[Dict[str, str], List[Dict[str, Union[str, List[str]]]]]:
     if not duplicates_db:
@@ -70,7 +78,3 @@ def remove_uploaded_hashes(uploaded_hashes: Set[str]):
     for hash_hex in uploaded_hashes:
         hashes_db.pop(hash_hex, None)
     print(f"Removed {len(uploaded_hashes)} hashes from memory storage.")
-
-def check_hash_exists(hash_hex: str) -> bool:
-    from app.db.supabase_service import check_hash_exists as supabase_check_hash_exists
-    return supabase_check_hash_exists(hash_hex)
