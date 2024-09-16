@@ -1,57 +1,74 @@
-import json
-import tempfile
-import os
-from datetime import datetime
+import hashlib
+from fastapi import UploadFile
+from typing import Dict, List, Union
 from supabase import create_client, Client
 
 # Supabase credentials
-SUPABASE_URL = "https://icifjmntjnnbkolhuetc.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljaWZqbW50am5uYmtvbGh1ZXRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjYzMzkzODEsImV4cCI6MjA0MTkxNTM4MX0._51rIr3lJnagXCrz_3HnvULFZi2MYycL3IF0uLQAnqo"
+SUPABASE_URL = "https://ynalolrcynccrixjequv.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InluYWxvbHJjeW5jY3JpeGplcXV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjYzMDUyMzAsImV4cCI6MjA0MTg4MTIzMH0.xS19vemTs59MJTjVZVeVvHWU7PJ5H9FywHbBHh2vfpY"
 
 # Create Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def upload_duplicates_to_supabase(duplicates):
+# In-memory storage for file hashes
+hashes_db: Dict[str, List[str]] = {}
+duplicates_db: Dict[str, List[str]] = {}
+
+async def hash_and_store_file(file: UploadFile):
+    sha256_hash = hashlib.sha256()
+    
+    # Handle file reading in chunks
+    while chunk := await file.read(1024):  # Read the file in chunks of 1024 bytes
+        sha256_hash.update(chunk)
+    
+    hash_hex = sha256_hash.hexdigest()
+    
+    # Check for duplicates and update databases
+    if hash_hex in hashes_db:
+        if hash_hex not in duplicates_db:
+            duplicates_db[hash_hex] = list(hashes_db[hash_hex])
+        if file.filename not in duplicates_db[hash_hex]:
+            duplicates_db[hash_hex].append(file.filename)
+        
+        return {
+            "filename": file.filename,
+            "sha256_hash": hash_hex,
+            "message": "Duplicate detected",
+            "duplicates": get_duplicate_files()
+        }
+    else:
+        # Store the hash in the Supabase 'other' table
+        upload_duplicates_to_supabase(hash_hex)
+
+        hashes_db[hash_hex] = [file.filename]
+        return {
+            "filename": file.filename,
+            "sha256_hash": hash_hex,
+            "message": "Hash stored"
+        }
+
+def upload_duplicates_to_supabase(hash_hex: str):
     try:
-        # Log duplicates data for debugging
-        print(f"Uploading duplicates to Supabase: {duplicates}")
+        print(f"Attempting to insert hash: {hash_hex}")
+        insert_response = supabase.table('other').insert({"hash": hash_hex}).execute()
+        print("Insert Response:", insert_response)
+        print("Insert Response Data:", insert_response.data)
 
-        # Ensure duplicates is a list of dictionaries
-        if not isinstance(duplicates, list):
-            raise ValueError("Invalid duplicates data format: expected a list")
-
-        # Create a temporary file
-        json_data = json.dumps(duplicates)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as temp_file:
-            temp_file.write(json_data.encode('utf-8'))
-            temp_file_path = temp_file.name
-
-        # Generate a unique file path in Supabase Storage
-        unique_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
-        file_path = f"duplicates_{unique_suffix}.json"  # Append timestamp to ensure uniqueness
-
-        try:
-            # Upload the temporary file to Supabase Storage
-            bucket_name = "FIRBuck"  # Replace with your bucket name
-            
-            with open(temp_file_path, "rb") as file:
-                upload_response = supabase.storage.from_(bucket_name).upload(file_path, file)
-
-            # Print the entire response for debugging
-            print("Upload Response:", upload_response)
-
-            # Check if response is successful
-            if upload_response.status_code == 200:
-                print(f"File uploaded successfully as {file_path}.")
-            else:
-                print(f"Error uploading file: {upload_response.text}")
-
-        except Exception as e:
-            print(f"An error occurred while uploading to Supabase: {e}")
-
-        finally:
-            # Clean up the temporary file
-            os.remove(temp_file_path)
+        if insert_response.status_code == 201:
+            print(f"Hash inserted successfully: {hash_hex}")
+        else:
+            print(f"Error inserting hash: {insert_response.data}")
 
     except Exception as e:
-        print(f"An error occurred while processing duplicates: {str(e)}")
+        print(f"An error occurred while inserting into Supabase table: {e}")
+
+def get_all_files() -> Union[Dict[str, str], List[Dict[str, Union[str, List[str]]]]]:
+    if not hashes_db:
+        return {"message": "No hashes found in memory"}
+    unique_files = {hash_hex: list(set(filenames)) for hash_hex, filenames in hashes_db.items()}
+    return [{"sha256_hash": hash_hex, "filenames": filenames} for hash_hex, filenames in unique_files.items()]
+
+def get_duplicate_files() -> Union[Dict[str, str], List[Dict[str, Union[str, List[str]]]]]:
+    if not duplicates_db:
+        return {"message": "No duplicates found in memory"}
+    return [{"sha256_hash": hash_hex, "filenames": filenames} for hash_hex, filenames in duplicates_db.items()]
