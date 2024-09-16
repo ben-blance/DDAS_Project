@@ -1,6 +1,6 @@
 ﻿# ddas_project
 ```bash
-pip install fastapi uvicorn sqlalchemy databases asyncpg redis
+pip install fastapi uvicorn sqlalchemy databases asyncpg redis supabase
 ```
 
 To run
