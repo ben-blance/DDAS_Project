@@ -25,11 +25,15 @@ def check_hash_exists(hash_hex: str, file_extension: str) -> bool:
         print(f"Error checking hash existence: {e}")
         return False
 
-def upload_hash_to_supabase(hash_hex: str, file_extension: str) -> bool:
+def upload_hash_to_supabase(hash_hex: str, file_name: str, file_size: int, file_extension: str) -> bool:
     table_name = get_table_name(file_extension)
     try:
         print(f"Attempting to insert hash into {table_name} table: {hash_hex}")
-        response = supabase.table(table_name).insert({"hash": hash_hex}).execute()
+        response = supabase.table(table_name).insert({
+            "hash": hash_hex,
+            "NAME": file_name,
+            "SIZE": file_size
+        }).execute()
         print("Insert Response:", response)
         
         if len(response.data) > 0:
