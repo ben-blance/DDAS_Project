@@ -2,6 +2,7 @@
 ```bash
 pip install fastapi uvicorn sqlalchemy databases asyncpg redis supabase
 ```
+pip install python-multipart
 
 To run
 ```
